@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1] - 2026-11-02
+
+### Changed
+- Listed under **Tools → Games**, grouped by category, instead of its own
+  entry in the Tools menu (game-common 1.9.1).
+
 ## [1.0.0] - 2026-10-30
 
 ### Added
