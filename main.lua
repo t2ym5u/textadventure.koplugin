@@ -20,6 +20,7 @@ local TextAdventure = PluginBase:extend{
     name      = "textadventure",
     menu_text = _("Text Adventures"),
     menu_hint = "tools",
+    party_mode = true,
 }
 
 function TextAdventure:createScreen()

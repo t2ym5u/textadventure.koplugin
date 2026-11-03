@@ -43,6 +43,19 @@ created the first time you open the game) and tap **Refresh**. Files placed in t
 - Title-bar menu: New game (start the story again), Font size, Save game, Restore game, Undo,
   Library, Rules.
 
+## Multiplayer
+
+*Text Adventures · multiplayer* (Tools → Games → Party & quiz, or menu →
+*Mode*): lay the reader on the table and explore together.
+
+- 2 to 8 players, names typed once and remembered. One is the **Commander**
+  (shown in the status line; the keyboard asks "Alice, type a command"): the
+  others suggest, the Commander sends the command.
+- Command passes to the next player after every command, or every 2, 3 or 5
+  (*Commander changes*); *Next commander* passes it by hand.
+- Text is larger by default (26, up to 36). The table's story, autosave and
+  font size are kept apart from the solo ones.
+
 ## Saving
 
 - **Automatic**: the game is saved after every turn and when the screen closes. Open the plugin again

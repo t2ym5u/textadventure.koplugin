@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0] - 2026-11-02
+
+### Added
+- Multiplayer mode: also listed as "Text Adventures · multiplayer" under
+  Tools → Games → Party & quiz, and switchable in the game (menu → Mode).
+  One player is the Commander — the status line shows who, and the keyboard
+  asks "Alice, type a command" — and command passes to the next player after
+  every command, or every 2, 3 or 5 commands (Commander changes); Next
+  commander passes it by hand. Text is larger by default (26) for reading
+  across a table. The table's story, autosave and font size are kept apart
+  from the solo ones.
+- Font sizes 32 and 36.
+- Separate multiplayer help (Rules opens the help of the mode played, with
+  a button to read the other mode's).
+
 ## [1.0.1] - 2026-11-02
 
 ### Changed
