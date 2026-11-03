@@ -37,16 +37,19 @@ local _               = require("i18n")
 local T               = require("ffi/util").template
 
 local MenuHelper = require("menu_helper")
+local Party      = require("party")
 local ScreenBase = require("screen_base")
 
 local Guide    = lrequire("stories_guide")
 local Library  = lrequire("library")
 local ZMachine = lrequire("zmachine")
+local Turns    = lrequire("turns")
 
 local DeviceScreen = Device.screen
 
-local FONT_SIZES        = { 16, 18, 20, 22, 24, 26, 28 }
+local FONT_SIZES        = { 16, 18, 20, 22, 24, 26, 28, 32, 36 }
 local DEFAULT_FONT_SIZE = 20
+local PARTY_FONT_SIZE   = 26   -- multiplayer: read across a table
 local MAX_TRANSCRIPT    = 16000   -- bytes of scrollback kept (and autosaved)
 local MAX_HISTORY       = 30
 
@@ -107,6 +110,30 @@ Copiez les fichiers d'histoires Z-code (.z3, .z5, .z8, .zblorb) dans koreader/da
 • IF Archive — ifarchive.org/indexes/if-archive/games/zcode/
 • En français : fiction-interactive.fr et la section française d'IFDB.
 Les classiques d'Infocom et tous les jeux Inform 6 fonctionnent. Les jeux Glulx (.gblorb, .ulx) demandent un autre interpréteur.
+]]
+
+local RULES_PARTY_EN = [[
+Text Adventures · multiplayer — Help
+
+Setup: lay the reader in the middle of the table and open a story from the library. In the menu: Players (2 to 8) and Player names, Commander changes (after every command, or every 2, 3 or 5 commands) and Font size (larger by default, up to 36, to read across the table).
+
+Who does what: one player is the Commander — the status line shows who ("Commander: Alice"). Everyone reads the text and suggests what to do; the Commander has the last word and sends the command, with the buttons (N, S, Look, Inventory…) or "Type a command" (the keyboard asks "Alice, type a command"). Every command sent passes the command to the next player round the table (or after 2, 3 or 5 commands). Next commander, in the menu, passes it at once.
+
+Commands: move with N, S, E, W, NE… and Up, Down, In, Out; LOOK; INVENTORY; TAKE LAMP, OPEN DOOR, EXAMINE STATUE, TALK TO GUARD; WAIT, AGAIN, UNDO. French stories take French words (NORD, PRENDRE LAMPE…). Tap the right side of the text for the next page, the left side for the previous one.
+
+The end: there are no scores of our own — the table explores together; when the story keeps a score, its status bar shows it. When the story ends, New game starts it again. The table's game is saved after every turn, apart from your solo game.
+]]
+
+local RULES_PARTY_FR = [[
+Fictions interactives · à plusieurs — Aide
+
+Mise en place : posez la liseuse au milieu de la table et ouvrez une histoire depuis la bibliothèque. Dans le menu : Joueurs (2 à 8) et Noms des joueurs, Changement de commandant (après chaque commande, ou toutes les 2, 3 ou 5 commandes) et Taille du texte (plus grande par défaut, jusqu'à 36, pour lire de l'autre côté de la table).
+
+Qui fait quoi : un joueur est aux commandes — la ligne d'état indique qui (« Aux commandes : Alice »). Tout le monde lit le texte et propose quoi faire ; celui qui commande a le dernier mot et envoie la commande, avec les boutons (N, S, Regarder, Inventaire…) ou « Taper une commande » (le clavier demande « Alice, tapez une commande »). Chaque commande envoyée fait passer la main au joueur suivant autour de la table (ou après 2, 3 ou 5 commandes). Commandant suivant, dans le menu, la fait passer tout de suite.
+
+Commandes : se déplacer avec N, S, E, O, NE… et Haut, Bas, Entrer, Sortir ; REGARDER ; INVENTAIRE ; PRENDRE LAMPE, OUVRIR PORTE, EXAMINER STATUE, PARLER AU GARDE ; ATTENDRE, ENCORE, ANNULER. Les histoires anglaises veulent des mots anglais (NORTH, TAKE LAMP…). Touchez la droite du texte pour la page suivante, la gauche pour la précédente.
+
+La fin : pas de score à nous — la table explore ensemble ; quand l'histoire tient un score, sa barre d'état l'affiche. Quand l'histoire se termine, Nouvelle partie la recommence. La partie de la table est sauvegardée à chaque tour, à part de votre partie en solo.
 ]]
 
 -- Command words, first one the story's dictionary knows wins. French stories
@@ -174,7 +201,9 @@ local TextAdventureScreen = ScreenBase:extend{
 }
 
 function TextAdventureScreen:init()
-    self.font_size = self.plugin:getSetting("font_size", DEFAULT_FONT_SIZE)
+    self.party     = self.plugin.launch_mode == "party"
+    self:loadParty()
+    self.font_size = self.plugin:getSetting(self:key("font_size"), self.party and PARTY_FONT_SIZE or DEFAULT_FONT_SIZE)
     self.lib_page  = 1
     self.mode      = "library"
     self.data_dir  = DataStorage:getDataDir() .. "/textadventure"
@@ -184,8 +213,8 @@ function TextAdventureScreen:init()
     self:scanLibrary()
 
     -- Back into the story the reader was in when the game was closed.
-    local last = self.plugin:getSetting("last_story")
-    if last and self.plugin:getSetting("in_game") and lfs.attributes(last, "mode") == "file" then
+    local last = self.plugin:getSetting(self:key("last_story"))
+    if last and self.plugin:getSetting(self:key("in_game")) and lfs.attributes(last, "mode") == "file" then
         self:openStory(last, true)
     end
 
@@ -213,8 +242,112 @@ function TextAdventureScreen:scanLibrary()
     self.plugin:saveSetting("title_cache", cache)
 end
 
+-- Solo and multiplayer keep their own story in progress, autosave and font
+-- size: the table's game doesn't overwrite the one you play alone.
+function TextAdventureScreen:key(k)
+    return self.party and ("party_" .. k) or k
+end
+
 function TextAdventureScreen:autosavePath(key)
-    return self.data_dir .. "/autosave/" .. key .. ".qzl"
+    return self.data_dir .. "/autosave/" .. key .. (self.party and ".party" or "") .. ".qzl"
+end
+
+-- ---------------------------------------------------------------------------
+-- Multiplayer: the Commander
+-- ---------------------------------------------------------------------------
+
+function TextAdventureScreen:loadParty()
+    if not self.party then return end
+    local p = self.plugin
+    self.players = Party.loadPlayers(p, Party.loadCount(p))
+    self.turns = Turns.restore(p:getSetting("party_turns"), #self.players, p:getSetting("party_every", 1))
+end
+
+function TextAdventureScreen:saveTurns()
+    self.plugin:saveSetting("party_turns", Turns.copy(self.turns))
+end
+
+function TextAdventureScreen:commanderName()
+    return self.players[self.turns.current] or Party.defaultName(self.turns.current)
+end
+
+function TextAdventureScreen:onNextCommander()
+    Turns.pass(self.turns)
+    self:saveTurns()
+    self:rebuild()
+end
+
+local function everyLabel(n)
+    return n == 1 and _("Every command") or T(_("Every %1 commands"), n)
+end
+
+function TextAdventureScreen:openEveryMenu()
+    local items = {}
+    for _i, n in ipairs(Turns.EVERY_CHOICES) do items[#items + 1] = { id = n, text = everyLabel(n) } end
+    MenuHelper.openPickerMenu{
+        title = _("Commander changes"), items = items, current_id = self.turns.every,
+        on_select = function(n)
+            Turns.setEvery(self.turns, n)
+            self.plugin:saveSetting("party_every", n)
+            self:saveTurns()
+            self:rebuild()
+        end,
+    }
+end
+
+function TextAdventureScreen:openModeMenu()
+    MenuHelper.openPickerMenu{
+        title      = _("Mode"),
+        items      = { { id = "solo", text = _("Solo") }, { id = "party", text = _("Multiplayer") } },
+        current_id = self.party and "party" or "solo",
+        on_select  = function(mode)
+            if (mode == "party") == self.party then return end
+            -- Leave this mode's story where it is, then pick up the other's.
+            local was_in_game = self.mode == "game" and self.vm ~= nil
+            if was_in_game then self:autosave() end
+            self.plugin:saveSetting(self:key("in_game"), was_in_game)
+            self.vm, self.tb, self.mode = nil, nil, "library"
+            self.plugin.launch_mode = mode
+            self.party = mode == "party"
+            self:loadParty()
+            self.font_size = self.plugin:getSetting(self:key("font_size"), self.party and PARTY_FONT_SIZE or DEFAULT_FONT_SIZE)
+            collectgarbage()
+            local last = self.plugin:getSetting(self:key("last_story"))
+            if last and self.plugin:getSetting(self:key("in_game")) and lfs.attributes(last, "mode") == "file" then
+                self:openStory(last, true)
+            end
+            self:rebuild()
+        end,
+    }
+end
+
+-- The entries both menus get, after Font size.
+function TextAdventureScreen:modeMenuItems()
+    local items = {}
+    if self.party then
+        local p = self.plugin
+        items[#items + 1] = { text = T(_("Players: %1"), #self.players), callback = function()
+            Party.pickCount(p, function(n)
+                self.players = Party.loadPlayers(p, n)
+                Turns.resize(self.turns, n)
+                self:saveTurns()
+                self:rebuild()
+            end)
+        end }
+        items[#items + 1] = { text = _("Player names"), callback = function()
+            Party.editPlayers(p, self.players, function() self:rebuild() end)
+        end }
+        items[#items + 1] = { text = T(_("Commander changes: %1"), everyLabel(self.turns.every)),
+                              callback = function() self:openEveryMenu() end }
+    end
+    items[#items + 1] = { text = T(_("Mode: %1"), self.party and _("Multiplayer") or _("Solo")),
+                          callback = function() self:openModeMenu() end }
+    return items
+end
+
+local function append(list, more)
+    for _i, v in ipairs(more) do list[#list + 1] = v end
+    return list
 end
 
 function TextAdventureScreen:savesDir(key)
@@ -326,24 +459,32 @@ function TextAdventureScreen:onRefresh()
 end
 
 function TextAdventureScreen:libraryMenu()
-    return {
+    local items = append({
         { text = T(_("Font size: %1"), self.font_size), callback = function() self:pickFontSize() end },
+    }, self:modeMenuItems())
+    return append(items, {
         { text = _("Refresh"), callback = function() self:onRefresh() end },
         { text = _("Where to find stories"), callback = function() self:showGuide() end },
-        self:makeRulesButtonConfig(RULES_EN, RULES_FR),
-    }
+        self:makeModeRulesButtonConfig({ solo = { RULES_EN, RULES_FR }, party = { RULES_PARTY_EN, RULES_PARTY_FR } }),
+    })
 end
 
 -- A text page with our own translated Close button (TextViewer's default
 -- buttons rely on KOReader's own catalogue).
-function TextAdventureScreen:showText(title, text)
+-- switch: optional { text, callback } button (the other mode's rules).
+function TextAdventureScreen:showText(title, text, switch)
     local viewer
+    local row = {}
+    if switch then
+        row[1] = { text = switch.text, callback = function() UIManager:close(viewer); switch.callback() end }
+    end
+    row[#row + 1] = { text = _("Close"), callback = function() UIManager:close(viewer) end }
     viewer = TextViewer:new{
         title  = title,
         text   = text,
         width  = math.floor(DeviceScreen:getWidth() * 0.9),
         height = math.floor(DeviceScreen:getHeight() * 0.9),
-        buttons_table = { { { text = _("Close"), callback = function() UIManager:close(viewer) end } } },
+        buttons_table = { row },
     }
     UIManager:show(viewer)
 end
@@ -353,8 +494,10 @@ function TextAdventureScreen:showGuide()
     self:showText(Guide.title(lang), Guide.text(lang))
 end
 
-function TextAdventureScreen:showRules(text)
-    self:showText(_("Rules"), text)
+-- opts (ScreenBase:showModeRules): title, switch.
+function TextAdventureScreen:showRules(text, opts)
+    opts = opts or {}
+    self:showText(opts.title or _("Rules"), text, opts.switch)
 end
 
 -- ---------------------------------------------------------------------------
@@ -385,13 +528,13 @@ function TextAdventureScreen:openStory(path, quiet)
                 and T(_("%1 is not a Z-code story (it may be a Glulx game, which needs another interpreter)."), info.name)
                 or  T(_("Cannot open %1: %2"), info.name, tostring(err)), 5)
         end
-        self.plugin:saveSetting("in_game", false)
+        self.plugin:saveSetting(self:key("in_game"), false)
         return false
     end
     local vm, verr = ZMachine.new(story, { cols = self:headerCols(), rows = 255 })
     if not vm then
         if not quiet then self:showMessage(T(_("Cannot open %1: %2"), info.name, verr), 5) end
-        self.plugin:saveSetting("in_game", false)
+        self.plugin:saveSetting(self:key("in_game"), false)
         return false
     end
     self.vm = vm
@@ -403,8 +546,8 @@ function TextAdventureScreen:openStory(path, quiet)
     self.cmd_lang = vm:isFrench() and "fr" or "en"
     self.cmd_cache = {}
     self.mode = "game"
-    self.plugin:saveSetting("last_story", path)
-    self.plugin:saveSetting("in_game", true)
+    self.plugin:saveSetting(self:key("last_story"), path)
+    self.plugin:saveSetting(self:key("in_game"), true)
 
     local resumed = false
     local auto = Library.readFile(self:autosavePath(info.key))
@@ -477,7 +620,7 @@ function TextAdventureScreen:runVM(fn, resumed)
         self:autosave()
     elseif state == "quit" then
         os.remove(self:autosavePath(self.story.key))
-        self.plugin:saveSetting("in_game", false)
+        self.plugin:saveSetting(self:key("in_game"), false)
     end
     return state
 end
@@ -511,6 +654,11 @@ function TextAdventureScreen:submit(text)
             self.history[#self.history + 1] = text
             if #self.history > MAX_HISTORY then table.remove(self.history, 1) end
         end
+    end
+    -- Multiplayer: one command sent, the Commander may change.
+    if self.party and text ~= "" then
+        Turns.step(self.turns)
+        self:saveTurns()
     end
     self:runVM(function() return self.vm:sendLine(text) end)
     self:afterTurn()
@@ -580,7 +728,8 @@ function TextAdventureScreen:showInput()
             end
         end }
     dlg = InputDialog:new{
-        title      = st == "input" and _("Type a command") or _("Type a key"),
+        title      = st == "input" and (self.party and T(_("%1, type a command"), self:commanderName())
+                                           or _("Type a command")) or _("Type a key"),
         input      = "",
         input_hint = st == "input" and (self.cmd_lang == "fr" and "prendre la lampe" or "take the lamp") or "",
         buttons    = { buttons },
@@ -967,7 +1116,8 @@ function TextAdventureScreen:updatePageStatus()
     elseif st == "quit" then msg = _("The story has ended.")
     elseif st == "error" then msg = _("The story stopped on an error.")
     end
-    self:updateStatus(self:joinStatus(msg, T(_("Page %1/%2"), cur, total)))
+    local who = self.party and st ~= "quit" and st ~= "error" and T(_("Commander: %1"), self:commanderName()) or nil
+    self:updateStatus(self:joinStatus(who, msg, T(_("Page %1/%2"), cur, total)))
 end
 
 function TextAdventureScreen:scrollPage(dir)
@@ -1000,15 +1150,20 @@ end
 
 function TextAdventureScreen:gameMenu()
     local function story(id) return function() self:sendCommand(id) end end
-    return {
+    local items = append({
         { text = _("New game"), callback = function() self:confirmNewGame() end },
         { text = T(_("Font size: %1"), self.font_size), callback = function() self:pickFontSize() end },
+    }, self:modeMenuItems())
+    if self.party then
+        items[#items + 1] = { text = _("Next commander"), callback = function() self:onNextCommander() end }
+    end
+    return append(items, {
         { text = _("Save game"), callback = story("save") },
         { text = _("Restore game"), callback = story("restore") },
         { text = _("Undo"), callback = story("undo") },
         { text = _("Library"), callback = function() self:onLibrary() end },
-        self:makeRulesButtonConfig(RULES_EN, RULES_FR),
-    }
+        self:makeModeRulesButtonConfig({ solo = { RULES_EN, RULES_FR }, party = { RULES_PARTY_EN, RULES_PARTY_FR } }),
+    })
 end
 
 function TextAdventureScreen:confirmNewGame()
@@ -1027,7 +1182,7 @@ function TextAdventureScreen:onNewGame()
     self.transcript = ""
     self.turn_start = 0
     self.last_cmd = nil
-    self.plugin:saveSetting("in_game", true)
+    self.plugin:saveSetting(self:key("in_game"), true)
     self:runVM(function() return self.vm:run() end)
     self:rebuild()
 end
@@ -1037,7 +1192,7 @@ function TextAdventureScreen:onLibrary()
     self.vm = nil
     self.tb = nil
     self.mode = "library"
-    self.plugin:saveSetting("in_game", false)
+    self.plugin:saveSetting(self:key("in_game"), false)
     collectgarbage()
     self:scanLibrary()
     self:rebuild()
@@ -1052,7 +1207,7 @@ function TextAdventureScreen:pickFontSize()
         current_id = self.font_size,
         on_select = function(id)
             self.font_size = id
-            self.plugin:saveSetting("font_size", id)
+            self.plugin:saveSetting(self:key("font_size"), id)
             self:rebuild()
         end,
     }
@@ -1075,9 +1230,9 @@ function TextAdventureScreen:closeScreen()
     if self.mode == "game" and self.vm then
         self:autosave()
         local st = self.vm:getState()
-        self.plugin:saveSetting("in_game", st == "input" or st == "char")
+        self.plugin:saveSetting(self:key("in_game"), st == "input" or st == "char")
     else
-        self.plugin:saveSetting("in_game", false)
+        self.plugin:saveSetting(self:key("in_game"), false)
     end
     ScreenBase.closeScreen(self)
 end

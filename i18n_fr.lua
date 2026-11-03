@@ -70,4 +70,13 @@ return {
     ["Restore which game?"] = { fr = "Charger quelle partie ?", es = "¿Qué partida cargar?", de = "Welchen Spielstand laden?" },
     ["No saved games for this story yet."] = { fr = "Pas encore de sauvegarde pour cette histoire.", es = "Todavía no hay partidas guardadas de esta historia.", de = "Noch keine Spielstände für diese Geschichte." },
     ["Cannot restore: %1"] = { fr = "Chargement impossible : %1", es = "No se puede cargar: %1", de = "Laden nicht möglich: %1" },
+    -- Multiplayer
+    ["Mode"] = { fr = "Mode", es = "Modo", de = "Modus" },
+    ["Commander: %1"] = { fr = "Aux commandes : %1", es = "Al mando: %1", de = "Am Steuer: %1" },
+    ["Next commander"] = { fr = "Commandant suivant", es = "Siguiente al mando", de = "Nächster am Steuer" },
+    ["Commander changes"] = { fr = "Changement de commandant", es = "Cambio de mando", de = "Wechsel am Steuer" },
+    ["Commander changes: %1"] = { fr = "Changement de commandant : %1", es = "Cambio de mando: %1", de = "Wechsel am Steuer: %1" },
+    ["Every command"] = { fr = "À chaque commande", es = "En cada orden", de = "Nach jedem Befehl" },
+    ["Every %1 commands"] = { fr = "Toutes les %1 commandes", es = "Cada %1 órdenes", de = "Alle %1 Befehle" },
+    ["%1, type a command"] = { fr = "%1, tapez une commande", es = "%1, escribe una orden", de = "%1, gib einen Befehl ein" },
 }
