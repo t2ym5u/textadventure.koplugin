@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.1] - 2026-11-03
+
+### Changed
+- Picks up game-common 1.11.0: the shared on-screen keyboard (where used)
+  gives every key the same letter size, and the no-repeat history helper.
+
 ## [1.1.0] - 2026-11-02
 
 ### Added
